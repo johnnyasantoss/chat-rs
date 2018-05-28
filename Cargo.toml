@@ -1,0 +1,6 @@
+[package]
+name = "chat-rs"
+version = "0.1.0"
+authors = ["Johnny Santos <johnnyadsantos@gmail.com>"]
+
+[dependencies]
