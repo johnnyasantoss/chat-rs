@@ -7,13 +7,13 @@ mod client;
 mod server;
 
 fn main() {
-    let serverArg = Arg::with_name("server")
+    let server_arg = Arg::with_name("server")
         .short("s")
         .help("Server to connect")
         .takes_value(true)
         .default_value("localhost");
 
-    let portArg = Arg::with_name("port")
+    let port_arg = Arg::with_name("port")
         .short("p")
         .help("Port to connect")
         .takes_value(true)
@@ -32,14 +32,14 @@ fn main() {
         .subcommand(
             SubCommand::with_name("join")
                 .about("Join a chat server")
-                .arg(&serverArg)
-                .arg(&portArg),
+                .arg(&server_arg)
+                .arg(&port_arg),
         )
         .subcommand(
             SubCommand::with_name("server")
                 .about("Start a chat server")
-                .arg(&serverArg)
-                .arg(&portArg),
+                .arg(&server_arg)
+                .arg(&port_arg),
         );
 
     let matches = app.get_matches();
