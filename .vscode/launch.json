@@ -1,0 +1,70 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug chat-rs",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=chat-rs"
+                ],
+                "filter": {
+                    "name": "chat-rs",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "server",
+                "-s localhost"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug tests in chat-rs",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=chat-rs"
+                ]
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug main",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--test=main"
+                ],
+                "filter": {
+                    "name": "chat-rs",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug tests in main",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=main"
+                ]
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

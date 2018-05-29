@@ -1,0 +1,8 @@
+{
+    "lldb.launch.sourceLanguages": [
+        "rust"
+    ],
+    "lldb.launch.env": {
+        "RUST_BACKTRACE": "1"
+    }
+}
