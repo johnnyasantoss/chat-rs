@@ -17,7 +17,8 @@
             },
             "args": [
                 "server",
-                "-s localhost"
+                "-s",
+                "localhost"
             ],
             "cwd": "${workspaceFolder}"
         },

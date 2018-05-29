@@ -2,11 +2,13 @@ extern crate clap;
 
 use clap::{App, Arg, SubCommand};
 
+use std::process;
+
 // internals
 mod client;
 mod server;
 
-fn main() {
+fn get_app() -> App<'static, 'static> {
     let server_arg = Arg::with_name("server")
         .short("s")
         .help("Server to connect")
@@ -23,12 +25,11 @@ fn main() {
             Err(_) => Err("Port should be a integer".to_string()),
         });
 
-    let app = App::new("chat")
+    let app = App::new("chat-rs")
         .author("Johnny Santos <johnnyadsantos@gmail.com>")
         .about("A chat using tcp. Made for learning purposes")
         .bin_name("chat-rs")
         .version("0.1.0")
-        .version_message("Genesis")
         .subcommand(
             SubCommand::with_name("join")
                 .about("Join a chat server")
@@ -41,20 +42,26 @@ fn main() {
                 .arg(&server_arg)
                 .arg(&port_arg),
         );
+    app
+}
 
-    let matches = app.get_matches();
+fn main() {
+    let mut app = get_app();
+    let matches = &app.get_matches();
 
     if let Some(matches) = matches.subcommand_matches("join") {
-        if let Some(server) = matches.value_of("server") {
-            client::join(server)
-        } else {
-            client::join(&String::from("localhost"))
-        }
+        let server = matches.value_of("server").unwrap();
+        let port = matches.value_of("port").unwrap().parse::<i32>().unwrap();
+        client::join(&server, &port);
+        process::exit(0);
     }
 
     if let Some(matches) = matches.subcommand_matches("server") {
-        if let Some(server) = matches.value_of("server") {
-            server::start(server)
-        }
+        let server = matches.value_of("server").unwrap();
+        let port = matches.value_of("port").unwrap().parse::<i32>().unwrap();
+        server::start(&server, &port);
+        process::exit(0);
     }
+
+    app.print_help().unwrap();
 }
