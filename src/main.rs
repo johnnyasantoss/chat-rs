@@ -1,8 +1,6 @@
 extern crate clap;
 
-use clap::{App, Arg, SubCommand};
-
-use std::process;
+use clap::{App, AppSettings, Arg, SubCommand};
 
 // internals
 mod client;
@@ -41,27 +39,26 @@ fn get_app() -> App<'static, 'static> {
                 .about("Start a chat server")
                 .arg(&server_arg)
                 .arg(&port_arg),
-        );
-    app
+        )
+        .setting(AppSettings::ColorAuto)
+        .setting(AppSettings::SubcommandRequiredElseHelp);
+
+    return app;
 }
 
 fn main() {
-    let mut app = get_app();
-    let matches = &app.get_matches();
+    let app = get_app();
+    let matches = app.get_matches();
 
     if let Some(matches) = matches.subcommand_matches("join") {
         let server = matches.value_of("server").unwrap();
         let port = matches.value_of("port").unwrap().parse::<i32>().unwrap();
         client::join(&server, &port);
-        process::exit(0);
     }
 
     if let Some(matches) = matches.subcommand_matches("server") {
         let server = matches.value_of("server").unwrap();
         let port = matches.value_of("port").unwrap().parse::<i32>().unwrap();
         server::start(&server, &port);
-        process::exit(0);
     }
-
-    app.print_help().unwrap();
 }
