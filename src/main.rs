@@ -2,7 +2,7 @@ extern crate clap;
 
 use clap::{App, AppSettings, Arg, SubCommand};
 
-use server::{Server, User};
+use server::Server;
 
 // internals
 mod client;
@@ -65,6 +65,6 @@ fn main() {
 
         let s = Server::new(server, port);
 
-        s.start();
+        s.start().unwrap();
     }
 }
