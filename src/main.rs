@@ -2,8 +2,11 @@ extern crate clap;
 
 use clap::{App, AppSettings, Arg, SubCommand};
 
+use server::{Server, User};
+
 // internals
 mod client;
+mod result;
 mod server;
 
 fn get_app() -> App<'static, 'static> {
@@ -59,6 +62,9 @@ fn main() {
     if let Some(matches) = matches.subcommand_matches("server") {
         let server = matches.value_of("server").unwrap();
         let port = matches.value_of("port").unwrap().parse::<i32>().unwrap();
-        server::start(&server, &port);
+
+        let s = Server::new(server, port);
+
+        s.start();
     }
 }
