@@ -4,6 +4,8 @@ use clap::{App, AppSettings, Arg, SubCommand};
 
 use server::Server;
 
+use std::u16;
+
 // internals
 mod client;
 mod result;
@@ -14,16 +16,20 @@ fn get_app() -> App<'static, 'static> {
         .short("s")
         .help("Server to connect")
         .takes_value(true)
-        .default_value("localhost");
+        .default_value("127.0.0.1");
 
     let port_arg = Arg::with_name("port")
         .short("p")
         .help("Port to connect")
         .takes_value(true)
         .default_value("1337")
-        .validator(|v| match v.parse::<i32>() {
+        .validator(|v| match v.parse::<u16>() {
             Ok(_) => return Ok(()),
-            Err(_) => Err("Port should be a integer".to_string()),
+            Err(_) => Err(format!(
+                "Port should be a positive value between {} and {}.",
+                u16::MIN,
+                u16::MAX
+            )),
         });
 
     let app = App::new("chat-rs")
@@ -61,7 +67,7 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("server") {
         let server = matches.value_of("server").unwrap();
-        let port = matches.value_of("port").unwrap().parse::<i32>().unwrap();
+        let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
 
         let s = Server::new(server, port);
 
