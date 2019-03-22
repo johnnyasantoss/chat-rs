@@ -1,10 +1,10 @@
-use result::Result;
-
 use std::io::{Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::string::String;
 use std::sync::mpsc::channel;
 use std::thread;
+
+use crate::result::Result;
 
 pub struct User {
     login: String,
@@ -13,30 +13,22 @@ pub struct User {
 
 pub struct Server<'a> {
     users: Vec<&'a User>,
-    location: String,
-    port: u16,
+    addr: SocketAddr,
 }
 
 impl<'a> Server<'a> {
     /// Creates a new `Server` instance
-    pub fn new(location: &str, port: u16) -> Self {
+    pub fn new(addr: SocketAddr) -> Self {
         return Server {
             users: vec![],
-            location: location.to_owned(),
-            port: port,
+            addr,
         };
     }
 
     pub fn start(self) -> Result<()> {
-        println!("Starting server @ {}:{}", self.location, self.port);
+        println!("Starting server @ {}", self.addr);
 
-        let ip_addr = self.location
-            .parse::<IpAddr>()
-            .expect("Invalid server location");
-
-        let addr = SocketAddr::new(ip_addr, self.port);
-
-        match TcpListener::bind(addr) {
+        match TcpListener::bind(self.addr) {
             Ok(tcp_listener) => self.readloop(tcp_listener),
             Err(_) => panic!("Failed to bind."),
         }
@@ -48,14 +40,13 @@ impl<'a> Server<'a> {
         loop {
             for incoming in tcp_listener.incoming() {
                 match incoming {
-                    Ok(stream) => {
+                    Ok(_stream) => {
                         let (tx, rx) = channel::<TcpStream>();
-                        tx.send(stream).expect("Error: Send");
 
-                        thread::spawn(move || {
-                            let mut stream = rx.recv().expect("Error");
-                            Server::handle_msg(&mut stream);
-                        });
+                        let mut stream = rx.recv().expect("Error");
+                        Server::handle_msg(&mut stream);
+
+                        tx.send(stream).expect("Error: Send");
                     }
                     Err(e) => panic!("aaaaaa: {}", e),
                 }
@@ -65,7 +56,7 @@ impl<'a> Server<'a> {
 
     fn handle_msg(stream: &mut TcpStream) {
         stream
-            .write(b"HTTP/1.0 200 OK\nContent-Type: text/plain\nContent-Length: 5\n\nPong!\n")
+            .write(b"Pong!\n")
             .expect("Write");
         println!("Incoming stream {:?}", stream);
 

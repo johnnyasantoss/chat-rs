@@ -1,10 +1,12 @@
 extern crate clap;
 
-use clap::{App, AppSettings, Arg, SubCommand};
-
-use server::Server;
-
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 use std::u16;
+
+use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+
+use crate::server::Server;
 
 // internals
 mod client;
@@ -60,17 +62,29 @@ fn main() {
     let matches = app.get_matches();
 
     if let Some(matches) = matches.subcommand_matches("join") {
-        let server = matches.value_of("server").unwrap();
-        let port = matches.value_of("port").unwrap().parse::<i32>().unwrap();
-        client::join(&server, &port);
+        let addr = get_server_addr(&matches);
+        client::join(addr);
     }
 
     if let Some(matches) = matches.subcommand_matches("server") {
-        let server = matches.value_of("server").unwrap();
-        let port = matches.value_of("port").unwrap().parse::<u16>().unwrap();
+        let addr = get_server_addr(&matches);
 
-        let s = Server::new(server, port);
+        let s = Server::new(addr);
 
         s.start().unwrap();
     }
+}
+
+fn get_server_addr(matches: &ArgMatches) -> SocketAddr {
+    let server = matches.value_of("server").expect("Server address");
+    let port = matches.value_of("port")
+        .expect("Server port")
+        .parse::<u16>()
+        .expect("Server port isn't a valid u16");
+
+    let ip_addr = server
+        .parse::<IpAddr>()
+        .expect("Invalid server location");
+
+    SocketAddr::new(ip_addr, port)
 }

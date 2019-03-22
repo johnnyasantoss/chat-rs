@@ -20,7 +20,8 @@
                 "-s",
                 "127.0.0.1"
             ],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "terminal": "external"
         },
         {
             "type": "lldb",
