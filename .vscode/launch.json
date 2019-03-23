@@ -16,11 +16,8 @@
                 }
             },
             "args": [
-                "server",
-                "-s",
-                "127.0.0.1"
+                "join",
             ],
-            "cwd": "${workspaceFolder}",
             "terminal": "external"
         },
         {

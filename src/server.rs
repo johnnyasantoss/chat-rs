@@ -1,28 +1,36 @@
-use std::io::{Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::io::Write;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::string::String;
 use std::sync::mpsc::channel;
+use std::sync::*;
 use std::thread;
 
 use crate::result::Result;
 
 pub struct User {
     login: String,
-    status: String,
 }
 
-pub struct Server<'a> {
-    users: Vec<&'a User>,
+impl User {
+    pub fn new(login: String) -> Self {
+        User {
+            login,
+        }
+    }
+}
+
+pub struct Server {
+    users: Vec<User>,
     addr: SocketAddr,
 }
 
-impl<'a> Server<'a> {
+impl Server {
     /// Creates a new `Server` instance
     pub fn new(addr: SocketAddr) -> Self {
-        return Server {
+        Server {
             users: vec![],
             addr,
-        };
+        }
     }
 
     pub fn start(self) -> Result<()> {
@@ -33,45 +41,66 @@ impl<'a> Server<'a> {
             Err(_) => panic!("Failed to bind."),
         }
 
-        return Ok(());
+        Ok(())
     }
 
-    fn readloop(&self, tcp_listener: TcpListener) {
+    fn readloop(self, tcp_listener: TcpListener) {
+        let (greet_sender, greet_recv) = channel();
+        let lock = Arc::new(Mutex::new(self));
+
+        thread::Builder::new()
+            .name("greeter".into())
+            .spawn(move || {
+                for username in greet_recv {
+                    lock.lock().unwrap().join(User::new(username));
+                }
+            })
+            .unwrap();
+
         loop {
             for incoming in tcp_listener.incoming() {
-                match incoming {
-                    Ok(_stream) => {
-                        let (tx, rx) = channel::<TcpStream>();
+                let mut stream = incoming.unwrap();
 
-                        let mut stream = rx.recv().expect("Error");
-                        Server::handle_msg(&mut stream);
+                let a = greet_sender.clone();
+                thread::spawn(move || {
+                    println!("Incoming stream {:?}", stream);
+                    Server::welcome_new_user(&mut stream);
 
-                        tx.send(stream).expect("Error: Send");
-                    }
-                    Err(e) => panic!("aaaaaa: {}", e),
-                }
+                    let username = String::new();
+                    a.send(username.clone()).unwrap();
+
+                    thread::Builder::new()
+                        .name(username.clone())
+                        .spawn(move || {
+                            Server::serve_chat(username, stream);
+                        })
+                        .unwrap();
+                });
             }
         }
     }
 
-    fn handle_msg(stream: &mut TcpStream) {
-        stream
-            .write(b"Pong!\n")
-            .expect("Write");
-        println!("Incoming stream {:?}", stream);
+    fn serve_chat(username: String, stream: TcpStream) {}
 
-        stream.shutdown(Shutdown::Both).expect("Shutdown");
+    fn welcome_new_user(stream: &mut TcpStream) {
+        stream.write_all(b"Welcome!").expect("Failed to handshake");
     }
 
-    pub fn join(mut self, user: &'a User) -> Self {
+    fn handle_msg(stream: &mut TcpStream) {
+        stream.write_all(b"Welcome!").expect("Write");
+    }
+
+    pub fn join(&mut self, user: User) -> &mut Self {
+        self.announce(&user);
+
         self.users.push(user);
 
-        return self;
+        self
     }
 
-    pub fn announce(self, user: &'a User) -> Self {
+    pub fn announce(&mut self, user: &User) -> &mut Self {
         println!("New user joined the party! Welcome {}!", user.login);
 
-        return self;
+        self
     }
 }

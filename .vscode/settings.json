@@ -4,5 +4,6 @@
     ],
     "lldb.launch.env": {
         "RUST_BACKTRACE": "1"
-    }
+    },
+    "lldb.adapterType": "native"
 }

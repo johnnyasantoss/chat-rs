@@ -1,7 +1,6 @@
 extern crate clap;
 
 use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
 use std::u16;
 
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -26,7 +25,7 @@ fn get_app() -> App<'static, 'static> {
         .takes_value(true)
         .default_value("1337")
         .validator(|v| match v.parse::<u16>() {
-            Ok(_) => return Ok(()),
+            Ok(_) => Ok(()),
             Err(_) => Err(format!(
                 "Port should be a positive value between {} and {}.",
                 u16::MIN,
@@ -34,7 +33,7 @@ fn get_app() -> App<'static, 'static> {
             )),
         });
 
-    let app = App::new("chat-rs")
+    App::new("chat-rs")
         .author("Johnny Santos <johnnyadsantos@gmail.com>")
         .about("A chat using tcp. Made for learning purposes")
         .bin_name("chat-rs")
@@ -52,9 +51,7 @@ fn get_app() -> App<'static, 'static> {
                 .arg(&port_arg),
         )
         .setting(AppSettings::ColorAuto)
-        .setting(AppSettings::SubcommandRequiredElseHelp);
-
-    return app;
+        .setting(AppSettings::SubcommandRequiredElseHelp)
 }
 
 fn main() {
