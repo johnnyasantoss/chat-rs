@@ -9,7 +9,6 @@ use crate::server::Server;
 
 // internals
 mod client;
-mod result;
 mod server;
 
 fn get_app() -> App<'static, 'static> {
@@ -66,9 +65,9 @@ fn main() {
     if let Some(matches) = matches.subcommand_matches("server") {
         let addr = get_server_addr(&matches);
 
-        let s = Server::new(addr);
+        let mut s = Server::new(addr);
 
-        s.start().unwrap();
+        s.start().expect("Failed to serve");
     }
 }
 

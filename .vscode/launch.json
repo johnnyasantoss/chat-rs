@@ -4,7 +4,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug chat-rs",
+            "name": "Debug client",
             "cargo": {
                 "args": [
                     "build",
@@ -18,52 +18,32 @@
             "args": [
                 "join",
             ],
-            "terminal": "external"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug tests in chat-rs",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=chat-rs"
-                ]
+            "env": {
+                "RUST_BACKTRACE": "full"
             },
-            "args": [],
-            "cwd": "${workspaceFolder}"
+            "terminal": "integrated"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug main",
+            "name": "Debug server",
             "cargo": {
                 "args": [
                     "build",
-                    "--test=main"
+                    "--bin=chat-rs"
                 ],
                 "filter": {
                     "name": "chat-rs",
                     "kind": "bin"
                 }
             },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug tests in main",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--test=main"
-                ]
+            "args": [
+                "server",
+            ],
+            "env": {
+                "RUST_BACKTRACE": "full"
             },
-            "args": [],
-            "cwd": "${workspaceFolder}"
+            "terminal": "integrated"
         }
     ]
 }
