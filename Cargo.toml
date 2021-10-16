@@ -5,4 +5,5 @@ authors = ["Johnny Santos <johnnyadsantos@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "~2.31"
+clap = "~2.33.3"
+ctrlc = { version = "~3.2.0", features = ["termination"] }

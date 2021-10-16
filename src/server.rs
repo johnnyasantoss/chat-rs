@@ -1,215 +1,138 @@
-use std::borrow::BorrowMut;
-use std::error::Error;
-use std::fmt::Display;
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{self, ErrorKind};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::string::String;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::*;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-pub const SUPER_SECRET_CLIENT_HANDSHAKE: &'static str = "Hello!";
-pub const SUPER_SECRET_SERVER_HANDSHAKE: &'static str = "Welcome!";
+use crate::common::{
+    self, read_messages, read_to_string, send_string, setup_stream, Action, ServerError,
+};
 
 #[derive(Debug)]
 pub struct User {
     name: String,
     stream: Box<TcpStream>,
-    sender: Sender<Action>,
 }
 
 impl User {
-    fn new(login: String, stream: Box<TcpStream>, sender: Sender<Action>) -> Self {
+    fn new(login: String, stream: Box<TcpStream>) -> Self {
         User {
             name: login,
             stream,
-            sender,
         }
     }
 }
 
-pub struct Server {
-    users: Vec<Arc<Mutex<Box<User>>>>,
-    addr: SocketAddr,
+pub fn start(addr: SocketAddr) -> Result<(), ServerError> {
+    println!("Starting server @ {}", addr);
+
+    let tcp_listener = TcpListener::bind(addr).expect("Failed to bind.");
+
+    serve(tcp_listener)?;
+
+    Ok(())
 }
 
-enum Action {
-    Greet(String),
-    Goodbye(String),
-    Broadcast { msg: String, username: String },
-    Shutdown,
-}
+fn serve(listener: TcpListener) -> Result<(), ServerError> {
+    let running = Arc::new(AtomicBool::new(true));
+    let running_clone = running.clone();
 
-#[derive(Debug)]
-pub enum ServerError {
-    FailedHandshake,
-    UserShutdown,
-    Other(Box<dyn Error>),
-}
-impl Display for ServerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Server error")
-    }
-}
+    ctrlc::set_handler(move || {
+        running_clone.store(false, Ordering::SeqCst);
+    })
+    .expect("Failed to set ctrl-c handler");
 
-impl Error for ServerError {}
+    let mut users = Arc::new(RwLock::new(Vec::<User>::new()));
 
-impl From<std::io::Error> for ServerError {
-    fn from(e: std::io::Error) -> Self {
-        ServerError::Other(Box::new(e))
-    }
-}
+    let (action_sender, action_receiver) = channel::<Action>();
 
-impl From<Box<dyn Error>> for ServerError {
-    fn from(e: Box<dyn Error>) -> Self {
-        ServerError::Other(e)
-    }
-}
+    let buttler_running = running.clone();
+    let buttler_sender = action_sender.clone();
+    let buttler =
+        create_buttler(listener, buttler_sender, buttler_running).expect("Initialize buttler");
 
-impl From<mpsc::SendError<Action>> for ServerError {
-    fn from(e: mpsc::SendError<Action>) -> Self {
-        ServerError::Other(Box::new(e))
-    }
-}
+    let writter_sender = action_sender.clone();
+    let writter = create_action_processor(action_receiver, writter_sender, users.clone())?;
 
-impl Server {
-    /// Creates a new `Server` instance
-    pub fn new(addr: SocketAddr) -> Self {
-        Server {
-            users: Vec::new(),
-            addr,
-        }
+    let mut serve_sender = action_sender.clone();
+
+    let mut err = None;
+
+    while running.load(Ordering::SeqCst) {
+        serve_chat(&mut users, &mut serve_sender).unwrap_or_else(|e| err = Some(e))
     }
 
-    pub fn start(&mut self) -> Result<(), ServerError> {
-        println!("Starting server @ {}", self.addr);
+    println!("Shutting down main...");
 
-        let tcp_listener = TcpListener::bind(self.addr).expect("Failed to bind.");
+    action_sender
+        .send(Action::Shutdown)
+        .expect("Could not shutdown writter thread");
 
-        self.serve(tcp_listener)?;
+    buttler.join().expect("Failed to shutdown");
+    writter.join().expect("Failed to shutdown");
 
-        Ok(())
-    }
+    Ok(())
+}
 
-    fn serve(&mut self, listener: TcpListener) -> Result<(), ServerError> {
-        let (sender, recv) = channel::<Action>();
+fn serve_chat(
+    users: &mut Arc<RwLock<Vec<User>>>,
+    sender: &mut Sender<Action>,
+) -> Result<(), ServerError> {
+    if let Ok(mut write_lock) = users.try_write() {
+        for user in write_lock.iter_mut() {
+            let stream = user.stream.as_mut();
 
-        let writter = create_writter(recv)?;
-
-        let mut joins = Vec::<JoinHandle<()>>::new();
-
-        for incoming in listener.incoming() {
-            let mut stream = match incoming {
-                Ok(s) => s,
+            match read_messages(stream) {
+                Ok(None) => continue,
+                Ok(Some(messages)) => {
+                    for message in messages {
+                        sender
+                            .send(Action::Broadcast {
+                                message,
+                                username: user.name.clone(),
+                            })
+                            .expect(&format!("Failed to broadcast message"));
+                    }
+                }
                 Err(e) => {
-                    println!("Error connecting new listener: {:?}", e);
-                    continue;
-                }
-            };
-
-            setup_stream(&stream);
-
-            let name = get_user(&mut stream)?;
-
-            let user = self
-                .welcome_new_user(name.clone(), Box::new(stream), sender.clone())
-                .expect("Failed to welcome new user");
-
-            let user_ref = self.users.get(user).unwrap().clone();
-
-            let user_thread = thread::Builder::new()
-                .name(format!("User: {}", name))
-                .spawn(move || {
-                    Server::serve_chat(user_ref);
-                })?;
-
-            joins.push(user_thread);
-        }
-
-        println!("Shuting down...");
-
-        for handle in joins {
-            if let Err(e) = handle.join() {
-                println!("Error finishing thread {:?}", e);
-            }
-        }
-
-        sender
-            .send(Action::Shutdown)
-            .expect("Could not shutdown writter thread");
-
-        writter.join().expect("Failed to shutdown");
-
-        Ok(())
-    }
-
-    fn serve_chat(user: Arc<Mutex<Box<User>>>) {
-        loop {
-            if let Ok(mut user) = user.lock() {
-                let stream = user.stream.as_mut();
-
-                if let Ok(Some(e)) = stream.take_error() {
-                    println!("{:?}", e);
-                    break;
-                }
-
-                let msg = match read_to_string(stream) {
-                    Ok(m) if m.len() == 0 => continue,
-                    Ok(m) => m,
-                    Err(e) => {
-                        if e.is::<ServerError>() {
-                            let err = (*e).downcast_ref::<ServerError>().unwrap();
-                            if let ServerError::UserShutdown = err {
-                                break;
-                            }
-                        }
-
-                        let err = (*e).downcast_ref::<io::Error>().unwrap();
-                        let kind = err.kind();
-                        if kind == ErrorKind::BrokenPipe {
+                    if e.is::<ServerError>() {
+                        let err = (*e).downcast_ref::<ServerError>().unwrap();
+                        if let ServerError::UserShutdown = err {
                             break;
                         }
-                        if kind == ErrorKind::TimedOut || kind == ErrorKind::Interrupted {
-                            continue;
-                        }
-                        println!("Err: [{:?}] {:?}", kind, &err);
+                    }
+
+                    let err = (*e).downcast_ref::<io::Error>().unwrap();
+                    let kind = err.kind();
+
+                    if kind == ErrorKind::BrokenPipe {
+                        sender
+                            .send(Action::Goodbye(user.name.clone()))
+                            .expect("Failed to gracefully shutdown user thread");
+                        break;
+                    }
+
+                    if kind == ErrorKind::TimedOut
+                        || kind == ErrorKind::Interrupted
+                        || kind == ErrorKind::WouldBlock
+                    {
                         continue;
                     }
-                };
 
-                if let Err(e) = user.sender.send(Action::Broadcast {
-                    msg,
-                    username: user.name.clone(),
-                }) {
-                    println!("Failed to broadcast message: {:?}", e);
+                    println!("Err: [{:?}] {:?}", kind, &err);
+                    continue;
                 }
             }
         }
-
-        if let Ok(user) = user.lock() {
-            user.sender
-                .send(Action::Goodbye(user.name.clone()))
-                .expect("Failed to gracefully shutdown user thread");
-        }
     }
 
-    fn welcome_new_user(
-        &mut self,
-        username: String,
-        stream: Box<TcpStream>,
-        sender: Sender<Action>,
-    ) -> Result<usize, ServerError> {
-        // send the username to the greeter thread
-        sender.send(Action::Greet(username.clone()))?;
+    thread::sleep(Duration::from_micros(5));
+    thread::yield_now();
 
-        let user = Arc::new(Mutex::new(Box::new(User::new(username, stream, sender))));
-
-        let user_pos = self.users.len();
-        self.users.push(user);
-
-        Ok(user_pos)
-    }
+    Ok(())
 }
 
 fn get_user(stream: &mut TcpStream) -> Result<String, ServerError> {
@@ -222,20 +145,10 @@ fn get_user(stream: &mut TcpStream) -> Result<String, ServerError> {
     Ok(username)
 }
 
-pub fn setup_stream(stream: &TcpStream) {
-    stream.set_nodelay(true).expect("set_nodelay failed");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(1)))
-        .expect("set_read_timeout failed");
-    stream
-        .set_write_timeout(Some(Duration::from_secs(1)))
-        .expect("set_write_timeout failed");
-}
-
 fn handshake_client(stream: &mut TcpStream) -> Result<(), ServerError> {
     match read_to_string(stream) {
-        Ok(handshake) if handshake == SUPER_SECRET_CLIENT_HANDSHAKE => {
-            send_string(stream, SUPER_SECRET_SERVER_HANDSHAKE.to_owned())?;
+        Ok(handshake) if handshake == common::SUPER_SECRET_CLIENT_HANDSHAKE => {
+            send_string(stream, common::SUPER_SECRET_SERVER_HANDSHAKE.to_owned())?;
 
             Ok(())
         }
@@ -244,74 +157,159 @@ fn handshake_client(stream: &mut TcpStream) -> Result<(), ServerError> {
     }
 }
 
-pub fn send_string(stream: &mut TcpStream, msg: String) -> Result<(), Box<dyn Error>> {
-    stream.write_all(msg.as_bytes())?;
-    stream.flush()?;
-    Ok(())
-}
-
 fn greet_user(user: &str) {
     println!("New user joined the party! Welcome {}!", user);
-    announce(&user);
 }
 
-pub fn announce(user: &str) {}
-
-pub fn read_to_string(stream: &mut TcpStream) -> Result<String, Box<dyn Error>> {
-    let mut buf = [0u8; 1024];
-
-    //TODO: read bigger messages
-
-    let read: usize;
-
-    loop {
-        match stream.read(&mut buf) {
-            Ok(n) => {
-                if n == 0 {
-                    return Err(Box::new(ServerError::UserShutdown));
-                }
-                read = n;
-                break;
-            }
-            Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
-            Err(e) => return Err(Box::new(e)),
-        }
-    }
-
-    let msg = String::from_utf8((buf[..read]).to_vec())
-        .expect("Failed to parse string received from client");
-
-    Ok(msg)
-}
-
-fn create_writter(receiver: Receiver<Action>) -> Result<JoinHandle<()>, io::Error> {
+fn create_action_processor(
+    receiver: Receiver<Action>,
+    sender: Sender<Action>,
+    users: Arc<RwLock<Vec<User>>>,
+) -> Result<JoinHandle<()>, io::Error> {
     let writter = thread::Builder::new()
-        .name("writter".into())
+        .name("action_processor".into())
         .spawn(move || {
-            writter(receiver);
+            writter_loop(receiver, sender, users);
         })?;
 
     Ok(writter)
 }
 
-fn writter(receiver: Receiver<Action>) {
+fn create_buttler(
+    listener: TcpListener,
+    buttler_sender: Sender<Action>,
+    buttler_running: Arc<AtomicBool>,
+) -> Result<JoinHandle<()>, io::Error> {
+    let buttler = thread::Builder::new()
+        .name("buttler".into())
+        .spawn(move || {
+            listener
+                .set_nonblocking(true)
+                .expect("Cannot set non-blocking");
+
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => receive_new_connection(stream, buttler_sender.clone())
+                        .unwrap_or_else(|e| {
+                            eprintln!("ERROR: {:?}", e);
+                        }),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                        thread::yield_now();
+                    }
+                    Err(e) => println!("Error connecting new listener: {:?}", e),
+                }
+
+                if !buttler_running.load(Ordering::SeqCst) {
+                    // Signal has been received. Exiting
+                    println!("Buttler shutting down...");
+                    return;
+                }
+            }
+        })?;
+
+    Ok(buttler)
+}
+
+fn writter_loop(receiver: Receiver<Action>, sender: Sender<Action>, users: Arc<RwLock<Vec<User>>>) {
     for action in receiver {
         match action {
-            Action::Greet(username) => {
-                greet_user(&username);
-            }
-            Action::Goodbye(username) => {
-                println!("Bye bye {}!", username);
-            }
+            Action::Goodbye(name) => loop {
+                if let Ok(mut users) = users.try_write() {
+                    let (i, _) = match users.find_by_username(&name) {
+                        None => break,
+                        Some(t) => t,
+                    };
+                    println!("Bye bye {}!", name);
+                    users.remove(i);
+                    break;
+                }
+            },
+            Action::Dropped(name) => loop {
+                if let Ok(mut users) = users.try_write() {
+                    let (i, _) = match users.find_by_username(&name) {
+                        None => break,
+                        Some(t) => t,
+                    };
+                    println!("INFO: Disconnecting dropped user: {}!", name);
+                    users.remove(i);
+                    break;
+                }
+            },
             Action::Shutdown => {
                 // TODO: Send message to clients to shutdown
                 println!("writter: Shutdown");
                 break;
             }
-            Action::Broadcast { msg, username } => {
-                println!("{}: {}", username, msg);
-            }
-            _ => continue,
+            Action::Broadcast {
+                username,
+                message: msg,
+            } => loop {
+                if let Ok(mut users) = users.try_write() {
+                    let (index, _) = match users.find_by_username(&username) {
+                        None => break,
+                        Some(t) => t,
+                    };
+
+                    for (i, user) in users.iter_mut().enumerate() {
+                        if i == index {
+                            println!("{}: {}", &user.name, &msg);
+                        } else {
+                            send_string(&mut user.stream, msg.clone()).unwrap_or_else(|e| {
+                                eprintln!("ERROR: Failed broadcasting to {}: {:?}", &user.name, e);
+                                sender
+                                    .send(Action::Dropped(username.clone()))
+                                    .expect("Failed to drop user");
+                            });
+                        }
+                    }
+
+                    break;
+                }
+            },
+            Action::NewUser { username, stream } => loop {
+                if let Ok(mut users) = users.try_write() {
+                    greet_user(&username);
+                    users.push(User::new(username, Box::new(stream)));
+                    break;
+                }
+            },
         }
+    }
+}
+fn receive_new_connection(
+    mut stream: TcpStream,
+    sender: Sender<Action>,
+) -> Result<(), ServerError> {
+    setup_stream(&stream).expect("Failed to setup connection");
+
+    let name = get_user(&mut stream)?;
+
+    let mut action = Action::NewUser {
+        username: name.clone(),
+        stream,
+    };
+
+    loop {
+        match sender.send(action) {
+            Ok(_) => break,
+            Err(e) => {
+                println!("Failed to add new user: {}", name);
+                eprintln!("Error: {}", e);
+                action = e.0
+            }
+        }
+    }
+
+    Ok(())
+}
+
+trait FindByUsername {
+    fn find_by_username(&self, name: &String) -> Option<(usize, &User)>;
+}
+
+impl FindByUsername for Vec<User> {
+    fn find_by_username(&self, name: &String) -> Option<(usize, &User)> {
+        self.iter().enumerate().find(|(_, u)| &u.name == name)
     }
 }

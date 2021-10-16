@@ -4,10 +4,7 @@
         {
             "type": "cargo",
             "label": "cargo build",
-            "command": "cargo",
-            "args": [
-                "build"
-            ],
+            "command": "build",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -27,5 +24,19 @@
                 "$rustc"
             ]
         },
+        {
+            "label": "stop-all",
+            "type": "shell",
+            "command": "killall -v -9 chat-rs",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": true
+            },
+            "problemMatcher": []
+        }
     ]
 }

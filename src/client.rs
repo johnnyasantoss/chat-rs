@@ -1,20 +1,25 @@
 use std::io::prelude::*;
 use std::io::{stdin, stdout};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream};
 
-use crate::server;
+use crate::common::{self, send_string, setup_stream};
 
-pub fn join(addr: SocketAddr) {
+pub fn join(addr: SocketAddr, username: Option<&str>) {
     let stream = TcpStream::connect(&addr).expect("Failed to connect to server.");
     println!("Connected {}", addr.to_string());
 
-    server::setup_stream(&stream);
+    setup_stream(&stream).expect("Failed to setup connection");
 
-    let username = get_username();
+    let username = username.map_or_else(get_username, |u| u.into());
 
     let mut client = ChatClient::new(username, stream);
     client.handshake();
     client.chat();
+
+    client
+        .stream
+        .shutdown(Shutdown::Both)
+        .expect("Failed disconnecting...");
 }
 
 fn readline(pre: &str) -> String {
@@ -54,23 +59,25 @@ impl ChatClient {
     }
 
     pub fn handshake(&mut self) {
+        // TODO: Handle invalid username errors
+
         println!("DEBUG: Handshaking...");
 
-        server::send_string(
+        common::send_string(
             &mut self.stream,
-            server::SUPER_SECRET_CLIENT_HANDSHAKE.into(),
+            common::SUPER_SECRET_CLIENT_HANDSHAKE.into(),
         )
         .unwrap();
 
-        let welcome = server::read_to_string(&mut self.stream).expect("Could not read from server");
+        let welcome = common::read_to_string(&mut self.stream).expect("Could not read from server");
 
-        if welcome != server::SUPER_SECRET_SERVER_HANDSHAKE {
+        if welcome != common::SUPER_SECRET_SERVER_HANDSHAKE {
             panic!("Failed to join server")
         }
 
         println!("DEBUG: Success");
 
-        server::send_string(&mut self.stream, self.username.clone())
+        common::send_string(&mut self.stream, self.username.clone())
             .expect("Failed to write username");
     }
 
@@ -95,6 +102,7 @@ impl ChatClient {
     }
 
     pub fn send_msg(&mut self, msg: &str) {
-        server::send_string(&mut self.stream, msg.into()).expect("Failed to send message to server")
+        send_string(&mut self.stream, format!("{}\n", msg))
+            .expect("Failed to send message to server")
     }
 }

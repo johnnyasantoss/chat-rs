@@ -5,13 +5,12 @@ use std::u16;
 
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
-use crate::server::Server;
-
 // internals
 mod client;
+mod common;
 mod server;
 
-fn get_app() -> App<'static, 'static> {
+fn main() {
     let server_arg = Arg::with_name("server")
         .short("s")
         .help("Server to connect")
@@ -32,7 +31,13 @@ fn get_app() -> App<'static, 'static> {
             )),
         });
 
-    App::new("chat-rs")
+    let username_arg = Arg::with_name("username")
+        .long("username")
+        .short("u")
+        .help("Sets your username")
+        .takes_value(true);
+
+    let app = App::new("chat-rs")
         .author("Johnny Santos <johnnyadsantos@gmail.com>")
         .about("A chat using tcp. Made for learning purposes")
         .bin_name("chat-rs")
@@ -41,7 +46,8 @@ fn get_app() -> App<'static, 'static> {
             SubCommand::with_name("join")
                 .about("Join a chat server")
                 .arg(&server_arg)
-                .arg(&port_arg),
+                .arg(&port_arg)
+                .arg(&username_arg),
         )
         .subcommand(
             SubCommand::with_name("server")
@@ -50,37 +56,33 @@ fn get_app() -> App<'static, 'static> {
                 .arg(&port_arg),
         )
         .setting(AppSettings::ColorAuto)
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-}
+        .setting(AppSettings::SubcommandRequiredElseHelp);
 
-fn main() {
-    let app = get_app();
     let matches = app.get_matches();
 
     if let Some(matches) = matches.subcommand_matches("join") {
         let addr = get_server_addr(&matches);
-        client::join(addr);
+        let username = matches.value_of("username");
+
+        client::join(addr, username);
     }
 
     if let Some(matches) = matches.subcommand_matches("server") {
         let addr = get_server_addr(&matches);
 
-        let mut s = Server::new(addr);
-
-        s.start().expect("Failed to serve");
+        server::start(addr).expect("Failed to serve");
     }
 }
 
 fn get_server_addr(matches: &ArgMatches) -> SocketAddr {
     let server = matches.value_of("server").expect("Server address");
-    let port = matches.value_of("port")
+    let port = matches
+        .value_of("port")
         .expect("Server port")
         .parse::<u16>()
         .expect("Server port isn't a valid u16");
 
-    let ip_addr = server
-        .parse::<IpAddr>()
-        .expect("Invalid server location");
+    let ip_addr = server.parse::<IpAddr>().expect("Invalid server location");
 
     SocketAddr::new(ip_addr, port)
 }

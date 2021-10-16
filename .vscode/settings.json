@@ -5,5 +5,7 @@
     "lldb.launch.env": {
         "RUST_BACKTRACE": "1"
     },
-    "lldb.adapterType": "native"
+    "lldb.adapterType": "native",
+    "lldb.showDisassembly": "auto",
+    "lldb.dereferencePointers": true
 }

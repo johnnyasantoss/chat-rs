@@ -27,6 +27,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug server",
+            "postDebugTask": "stop-all",
             "cargo": {
                 "args": [
                     "build",
