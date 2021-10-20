@@ -214,28 +214,14 @@ fn create_buttler(
 fn writter_loop(receiver: Receiver<Action>, sender: Sender<Action>, users: Arc<RwLock<Vec<User>>>) {
     for action in receiver {
         match action {
-            Action::Goodbye(name) => loop {
-                if let Ok(mut users) = users.try_write() {
-                    let (i, _) = match users.find_by_username(&name) {
-                        None => break,
-                        Some(t) => t,
-                    };
-                    println!("Bye bye {}!", name);
-                    users.remove(i);
-                    break;
-                }
-            },
-            Action::Dropped(name) => loop {
-                if let Ok(mut users) = users.try_write() {
-                    let (i, _) = match users.find_by_username(&name) {
-                        None => break,
-                        Some(t) => t,
-                    };
-                    println!("INFO: Disconnecting dropped user: {}!", name);
-                    users.remove(i);
-                    break;
-                }
-            },
+            Action::Goodbye(name) => {
+                users.delete_user(&name).unwrap();
+                println!("Bye bye {}!", name);
+            }
+            Action::Dropped(name) => {
+                users.delete_user(&name).unwrap();
+                println!("INFO: Disconnecting dropped user: {}!", name);
+            }
             Action::Shutdown => {
                 // TODO: Send message to clients to shutdown
                 println!("writter: Shutdown");
@@ -244,36 +230,25 @@ fn writter_loop(receiver: Receiver<Action>, sender: Sender<Action>, users: Arc<R
             Action::Broadcast {
                 username,
                 message: msg,
-            } => loop {
-                if let Ok(mut users) = users.try_write() {
-                    let (index, _) = match users.find_by_username(&username) {
-                        None => break,
-                        Some(t) => t,
-                    };
-
-                    for (i, user) in users.iter_mut().enumerate() {
-                        if i == index {
-                            println!("{}: {}", &user.name, &msg);
-                        } else {
-                            send_string(&mut user.stream, msg.clone()).unwrap_or_else(|e| {
+            } => {
+                users.for_each_mut(|user| {
+                    if user.name == username {
+                        println!("{}: {}", &user.name, &msg);
+                    } else {
+                        send_string(&mut user.stream, format!("{}: {}", &username, &msg))
+                            .unwrap_or_else(|e| {
                                 eprintln!("ERROR: Failed broadcasting to {}: {:?}", &user.name, e);
                                 sender
                                     .send(Action::Dropped(username.clone()))
                                     .expect("Failed to drop user");
                             });
-                        }
                     }
-
-                    break;
-                }
-            },
-            Action::NewUser { username, stream } => loop {
-                if let Ok(mut users) = users.try_write() {
-                    greet_user(&username);
-                    users.push(User::new(username, Box::new(stream)));
-                    break;
-                }
-            },
+                });
+            }
+            Action::NewUser { username, stream } => {
+                greet_user(&username);
+                users.add_user(User::new(username, Box::new(stream)));
+            }
         }
     }
 }
@@ -304,12 +279,59 @@ fn receive_new_connection(
     Ok(())
 }
 
-trait FindByUsername {
-    fn find_by_username(&self, name: &String) -> Option<(usize, &User)>;
+trait ManageUsers {
+    // fn find_by_username(&self, name: &str) -> Option<&User>;
+
+    fn delete_user(&self, name: &str) -> Result<User, &str>;
+
+    fn add_user(&self, user: User);
+
+    fn for_each_mut<T>(&self, f: T)
+    where
+        T: FnMut(&mut User);
 }
 
-impl FindByUsername for Vec<User> {
-    fn find_by_username(&self, name: &String) -> Option<(usize, &User)> {
-        self.iter().enumerate().find(|(_, u)| &u.name == name)
+impl ManageUsers for Arc<RwLock<Vec<User>>> {
+    // fn find_by_username(&self, name: &str) -> Option<&User> {
+    //     loop {
+    //         if let Ok(users) = self.try_read() {
+    //             return users.iter().find(|u| &u.name == name);
+    //         }
+    //     }
+    // }
+
+    fn delete_user(&self, name: &str) -> Result<User, &str> {
+        loop {
+            if let Ok(mut users) = self.try_write() {
+                if let Some((i, _)) = users.iter().enumerate().find(|(_, u)| &u.name == name) {
+                    return Ok(users.remove(i));
+                } else {
+                    return Err(&"Could not find user");
+                }
+            }
+        }
+    }
+
+    fn add_user(&self, user: User) {
+        loop {
+            if let Ok(mut users) = self.try_write() {
+                users.push(user);
+                return;
+            }
+        }
+    }
+
+    fn for_each_mut<T>(&self, mut f: T)
+    where
+        T: FnMut(&mut User),
+    {
+        loop {
+            if let Ok(mut users) = self.try_write() {
+                for user in users.iter_mut() {
+                    f(user);
+                }
+                break;
+            }
+        }
     }
 }
